@@ -1,0 +1,446 @@
+/* by Zdenek Brichacek
+   http://blog.brichacek.net
+*/
+
+/dts-v1/;
+#include "sun8i-h3.dtsi"
+#include "sunxi-common-regulators.dtsi"
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/pinctrl/sun4i-a10.h>
+#include <dt-bindings/thermal/thermal.h>
+
+/ {
+	model = "Xunlong Orange Pi Zero";
+	compatible = "xunlong,orangepi-zero", "allwinner,sun8i-h2-plus";
+
+	aliases {
+		serial0 = &uart0;
+		/* ethernet0 is the H3 emac, defined in sun8i-h3.dtsi */
+		ethernet0 = &emac;
+		ethernet1 = &xr819;
+		spi0 = "/soc/spi@01c68000";
+		spi1 = "/soc/spi@01c69000";
+		i2c0 = "/soc/i2c@01c2ac00";
+		i2c1 = "/soc/i2c@01c2b000";
+		cpu0 = "/cpus/cpu@0";
+		serial1 = &uart1;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+		    compatible = "arm,cortex-a7";
+		    device_type = "cpu";
+		    reg = <0>;
+		    clocks = <&ccu CLK_CPUX>;
+		    clock-latency = <244144>; /* 8 32k periods */
+		    clock-frequency = <1200000000>;
+		};
+
+		cpu@1 {
+		    compatible = "arm,cortex-a7";
+		    device_type = "cpu";
+		    reg = <1>;
+		    clock-frequency = <1200000000>;
+		};
+
+		cpu@2 {
+		    compatible = "arm,cortex-a7";
+		    device_type = "cpu";
+		    reg = <2>;
+		    clock-frequency = <1200000000>;
+		};
+
+		cpu@3 {
+		    compatible = "arm,cortex-a7";
+		    device_type = "cpu";
+		    reg = <3>;
+		    clock-frequency = <1200000000>;
+		};
+	};
+
+        thermal-zones {
+                cpu_thermal: cpu_thermal {
+                        /* milliseconds */
+                        polling-delay-passive = <330>;
+                        polling-delay = <1000>;
+                        thermal-sensors = <&ths 0>;
+                };
+        };
+
+	soc {
+                crypto: crypto-engine@01c15000 {
+                        compatible = "allwinner,sun8i-h3-crypto",
+                    		     "allwinner,sun4i-a10-crypto",
+                    		     "allwinner,sun6i-a31-crypto",
+                    		     "allwinner,sun7i-a20-crypto";
+                        reg = <0x01c15000 0x1000>;
+//                        interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+                        interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>;
+//                        clocks = <&ccu CLK_BUS_SS>, <&ccu CLK_SS>;
+                        clocks = <&ccu 24>, <&ccu 69>;
+                        clock-names = "ahb", "mod";
+//                        resets = <&ccu RST_BUS_SS>;
+                        resets = <&ccu 5>;
+                        reset-names = "ahb";
+                };
+
+/*
+		crypto: crypto@1c15000 {
+                        compatible = "allwinner,sun8i-h3-crypto";
+                        reg = <0x01c15000 0x1000>;
+                        interrupts = <GIC_SPI 94 IRQ_TYPE_LEVEL_HIGH>;
+                        interrupt-names = "ce_ns";
+                        resets = <&ccu RST_BUS_CE>;
+                        reset-names = "ahb";
+                        clocks = <&ccu CLK_BUS_CE>, <&ccu CLK_CE>;
+                        clock-names = "ahb1_ce", "mod";
+                        status = "disabled";
+                };
+*/
+                ths: ths@01c25000 {
+                        compatible = "allwinner,sun8i-h3-ths";
+//                        reg = <0x01c25000 0x100>;
+			reg = <0x01c25000 0x400>,
+			      <0x01c14234 0x4>;
+			interrupts = <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>;
+                        #thermal-sensor-cells = <0>;
+                        #io-channel-cells = <0>;
+                        clocks = <&ccu CLK_BUS_THS>, <&ccu CLK_THS>;
+                        clock-names = "bus", "ths";
+                        resets = <&ccu RST_BUS_THS>;
+                        reset-names = "ahb";
+                };
+
+		onewire {
+            		compatible = "w1-gpio";
+            		pinctrl-names = "default";
+            		pinctrl-0 = <&w1_pins>;
+            		gpios = <&pio 0 2 0>; /* PA02 */
+            		status = "okay";
+    		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		pwr_led {
+			label = "orangepi:green:pwr";
+			gpios = <&r_pio 0 10 GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		status_led {
+			label = "orangepi:red:status";
+			gpios = <&pio 0 17 GPIO_ACTIVE_HIGH>;
+		};
+	};
+
+	reg_vcc_wifi: reg_vcc_wifi {
+		compatible = "regulator-fixed";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-name = "vcc-wifi";
+		enable-active-high;
+		gpio = <&pio 0 20 GPIO_ACTIVE_HIGH>;
+		startup-delay-us = <70000>;
+	};
+
+	wifi_pwrseq: wifi_pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		pinctrl-names = "default";
+		reset-gpios = <&r_pio 0 7 GPIO_ACTIVE_LOW>;
+		post-power-on-delay-ms = <50>;
+	};
+
+//	iio-hwmon {
+//                compatible = "iio-hwmon";
+//                io-channels = <&ths>;
+//        };
+
+	vdd_cpu: vdd_cpu {
+		compatible = "regulator-gpio";
+		pinctrl-names = "default";
+		pinctrl-0 = <&vdd_cpu_pins>;
+		regulator-name = "cpu-core";
+		regulator-min-microvolt = <1100000>;
+		regulator-max-microvolt = <1300000>;
+		regulator-boot-on;
+		regulator-always-on;		
+		gpios = <&r_pio 0 6 GPIO_ACTIVE_HIGH>;
+//		enable-gpio = <&r_pio 0 8 GPIO_ACTIVE_HIGH>;
+		states = <1300000 0x1
+			1100000 0x0>;
+
+		startup-delay-us = <100000>;
+		enable-active-high;
+	};
+
+};
+
+&emac {
+	phy-handle = <&int_mii_phy>;
+	phy-mode = "mii";
+	allwinner,leds-active-low;
+	status = "okay";
+};
+
+&mmc0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&mmc0_pins_a>;
+	vmmc-supply = <&reg_vcc3v3>;
+	bus-width = <4>;
+	cd-gpios = <&pio 5 6 GPIO_ACTIVE_HIGH>; /* PF6 */
+	cd-inverted;
+	status = "okay";
+};
+
+&mmc1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&mmc1_pins_a>;
+	vmmc-supply = <&reg_vcc3v3>;
+	vqmmc-supply = <&reg_vcc_wifi>;
+	mmc-pwrseq = <&wifi_pwrseq>;
+	bus-width = <4>;
+	max-frequency = <16000000>;
+	non-removable;
+	status = "okay";
+
+	/*
+	 * Explicitly define the sdio device, so that we can add an ethernet
+	 * alias for it (which e.g. makes u-boot set a mac-address).
+	 */
+	xr819: sdio_wifi@1 {
+		reg = <1>;
+		compatible = "xradio,xr819";
+		pinctrl-names = "default";
+		pinctrl-0 = <&wifi_wake>;
+		interrupt-parent = <&pio>;
+		interrupts = <6 10 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "host-wake";
+//		local-mac-address = [dc 44 6d c0 32 78];
+	};
+};
+
+&pio {
+        wifi_wake: wifi_wake {
+                pins = "PG10";
+                function = "gpio_in";
+	};
+
+	w1_pins: w1_pins {
+		pins = "PA02";
+		function = "gpio_in";
+		bias-pull-up;
+	};
+
+	spi1_cs1: spi1_cs1 {
+		pins = "PA13";
+		function = "gpio_out";
+		output-high;
+	};
+};
+
+&r_pio {
+        wifi_rst: wifi_rst {
+                pins = "PL7";
+                function = "gpio_out";
+	};
+
+	vdd_cpu_pins: vdd_cpu_pins@0 {
+		allwinner,pins = "PL6";
+                allwinner,function = "gpio_out";
+                allwinner,drive = <SUN4I_PINCTRL_10_MA>;
+                allwinner,pull = <SUN4I_PINCTRL_NO_PULL>;
+	};
+};
+
+&mmc1_pins_a {
+	bias-pull-up;
+};
+
+&spi0 {
+	/* Disable SPI NOR by default: it optional on Orange Pi Zero boards */
+	status = "okay";
+
+	flash@0 {
+		#address-cells = <1>;
+		#size-cells = <1>;
+//		compatible = "mxicy,mx25l1606e", "winbond,w25q128";
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+//		spi-max-frequency = <40000000>;
+		spi-max-frequency = <1000000>;
+		status = "okay";
+	};
+};
+
+&spi1 {
+	pinctrl-names = "default", "default";
+	pinctrl-1 = <&spi1_cs1>;
+	cs-gpios = <0>, <&pio 0 13 0>; /* PA13 */
+	status = "okay";
+	spidev {
+		compatible = "spidev";
+		status = "okay";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+	};
+};
+
+&i2c0 {
+	status = "okay";
+};
+
+&i2c1 {
+	status = "okay";
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pins_a>;
+	status = "okay";
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pins>;
+	status = "okay";
+};
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2_pins>;
+	status = "disabled";
+};
+
+&ehci0 {
+	status = "okay";
+};
+
+&ehci1 {
+	status = "okay";
+};
+
+&ehci2 {
+	status = "okay";
+};
+
+&ehci3 {
+	status = "okay";
+};
+
+&ohci0 {
+	status = "okay";
+};
+
+&ohci1 {
+	status = "okay";
+};
+
+
+&ohci2 {
+	status = "okay";
+};
+
+&ohci3 {
+	status = "okay";
+};
+
+&usb_otg {
+	dr_mode = "peripheral";
+//	dr_mode = "otg";
+	status = "okay";
+};
+
+&usbphy {
+	/*
+	 * USB Type-A port VBUS is always on. However, MicroUSB VBUS can only
+	 * power up the board; when it's used as OTG port, this VBUS is
+	 * always off even if the board is powered via GPIO pins.
+	 */
+	status = "okay";
+	usb0_id_det-gpios = <&pio 6 12 GPIO_ACTIVE_HIGH>; /* PG12 */
+};
+
+&ir	{
+        pinctrl-names = "default";
+        pinctrl-0 = <&ir_pins_a>;
+        status = "okay";
+};
+
+&codec {
+	allwinner,audio-routing = "Line Out", "LINEOUT", "MIC1", "Mic", "Mic",  "MBIAS";
+	status = "okay";
+};
+
+&pwm {
+	status = "disabled";
+};
+
+&cpu0 {
+    operating-points = <
+	/* kHz	  uV */
+	1008000	1300000
+	960000	1300000
+	816000	1100000
+	648000	1100000
+	480000	1100000
+	408000	1100000
+	240000	1100000
+	120000	1100000
+	>;
+    #cooling-cells = <2>;
+    cooling-min-level = <0>;
+    cooling-max-level = <8>;
+    cpu0-supply = <&vdd_cpu>;
+};
+
+
+&cpu_thermal {
+    trips {
+	cpu_warm: cpu_warm {
+	    temperature = <40000>;
+	    hysteresis = <2000>;
+	    type = "passive";
+	};
+	cpu_hot: cpu_hot {
+	    temperature = <50000>;
+	    hysteresis = <2000>;
+	    type = "passive";
+	};
+	cpu_very_hot: cpu_very_hot {
+	    temperature = <60000>;
+	    hysteresis = <2000>;
+	    type = "passive";
+	};
+	cpu_crit: cpu_crit {
+	    temperature = <70000>;
+	    hysteresis = <2000>;
+	    type = "critical";
+	};
+    };
+
+    cooling-maps {
+	cpu_warm_limit_cpu {
+	    trip = <&cpu_warm>;
+	    cooling-device = <&cpu0 THERMAL_NO_LIMIT 6>;
+	};
+	cpu_hot_limit_cpu {
+	    trip = <&cpu_hot>;
+	    cooling-device = <&cpu0 7 7>;
+	};
+	cpu_very_hot_limit_cpu {
+	    trip = <&cpu_very_hot>;
+	    cooling-device = <&cpu0 8 THERMAL_NO_LIMIT>;
+	};
+    };
+};
