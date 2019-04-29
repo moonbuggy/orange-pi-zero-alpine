@@ -16,25 +16,31 @@ UBOOT_SOURCE		?= github.com/u-boot/u-boot
 LINUX_SOURCE		?= github.com/linux-sunxi/linux-sunxi -b sunxi-next
 XRADIO_SOURCE		?= github.com/fifteenhex/xradio
 #XRADIO_SOURCE		?= github.com/moonbuggy/xradio
+XR819_FW_SOURCE		?= github.com/armbian/firmware
+REGDB_SOURCE		?= git.kernel.org/pub/scm/linux/kernel/git/sforshee/wireless-regdb
 ALPINE_VERSION		?= 3.9.3
 ALPINE_SERVER		?= dl-cdn.alpinelinux.org
 
 UBOOT_DEFCONFIG		?= orangepi_zero_defconfig
 LINUX_DEFCONFIG		?= sunxi_defconfig
+DEVTREE_NAME		?= sun8i-h2-plus-orangepi-zero
 
 CROSS_COMPILE		?= arm-linux-gnueabihf-
 ARCH			?= arm
 MENUCONFIG		?= menuconfig
 
-#INITRAMFS_COMPRESSION	?= gzip -9
-INITRAMFS_COMPRESSION	?= xz --check=crc32
-MODLOOP_COMPRESSION	?= xz
+#INITRAMFS_COMPRESSION		?= gzip -9
+INITRAMFS_COMPRESSION		?= xz --check=crc32
+MODLOOP_COMPRESSION		?= xz
 
 
 # These shouldn't need to be modified (although many of them can be if you want):
 #
 THIS_FILE		:= $(lastword $(MAKEFILE_LIST))
 ROOT_DIR		:= $(shell pwd)
+CURRENT_CONFIG		:= $(ROOT_DIR)/.make.conf
+
+-include $(CURRENT_CONFIG)
 
 CONFIG_DIR		?= configs
 SOURCE_DIR		?= source
@@ -42,26 +48,31 @@ OUTPUT_DIR		?= files
 UBOOT_DIR		?= $(SOURCE_DIR)/u-boot
 UBOOT_CONFIG		?= $(UBOOT_DIR)/.config
 UBOOT_FILE		?= $(UBOOT_DIR)/u-boot-sunxi-with-spl.bin
+BOOT_CMD		?= boot.cmd
 LINUX_DIR		?= $(SOURCE_DIR)/linux-sunxi
 LINUX_CONFIG		?= $(LINUX_DIR)/.config
 LINUX_MOD_PATH		?= $(ROOT_DIR)/$(LINUX_DIR)/output
 ZIMAGE_FILE		?= $(LINUX_DIR)/arch/arm/boot/zImage
 XRADIO_DIR		?= $(SOURCE_DIR)/xradio
+XR819_FW_ROOT		?= $(SOURCE_DIR)/firmware
+XR819_FW_DIR		?= $(XR819_FW_ROOT)/xr819
+REGDB_DIR		?= $(SOURCE_DIR)/wireless-regdb
+#REGDB_NAMES		?= regulatory.db regulatory.db.p7s
+REGDB_DB		?= regulatory.db
+REGDB_SIG		?= regulatory.db.p7s
 ALPINE_NAME		?= alpine-uboot-$(ALPINE_VERSION)-armv7
 ALPINE_DIR		?= $(SOURCE_DIR)/$(ALPINE_NAME)
 ALPINE_ARCHIVE		?= $(SOURCE_DIR)/$(ALPINE_NAME).tar.gz
+DEVTREE_OUT		?= $(OUTPUT_DIR)/boot/dtbs
 
-modules_dir		= $(shell find $(LINUX_DIR)/output/lib/modules -maxdepth 1 -type d -regex '.*/[0-9]+.*')
-initramfs_temp		?= $(ROOT_DIR)/$(OUTPUT_DIR)/initramfs-temp
-initramfs_tempfile	?= $(ROOT_DIR)/$(OUTPUT_DIR)/initramfs-sunxi-temp
-modloop_temp		?= $(OUTPUT_DIR)/modloop-temp
-
+-include $(CURRENT_CONFIG)
 
 .PHONY: help info list-configs all get-all clean mrproper distclean \
 	uboot-clean uboot-mrproper uboot uboot-defconfig uboot-% get-uboot \
 	linux-clean linux-mrproper linux linux-defconfig linux-% .build-linux .build-modules get-linux \
-	xradio get-xradio \
-	install-clean install initramfs modloop get-alpine
+	xradio get-xradio get-regdb get-firmware \
+	install-clean install initramfs modloop get-alpine \
+	.apk-files
 
 .DEFAULT_TARGET: help
 
@@ -86,6 +97,7 @@ info:		## display build parameters
 	@echo "Linux source:		$(LINUX_SOURCE)"
 	@echo "Linux defconfig:	$(LINUX_DEFCONFIG)"
 	@echo "Xradio source:		$(XRADIO_SOURCE)"
+	@echo "regdb source: 		$(REGDB_SOURCE)"
 	@echo "Alpine version:		$(ALPINE_VERSION)"
 	@echo "Alpine server:		$(ALPINE_SERVER)"
 	@echo "make defaults:		ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) MENUCONFIG=$(MENUCONFIG)"
@@ -154,12 +166,15 @@ linux: $(LINUX_DIR)		## build linux using existing .config if present, otherwise
 linux-%: $(LINUX_DIR)		## build linux with custom config, see 'make list-configs' (discards any existing .config)
 	@if [ -f $(CONFIG_DIR)/kernel.$*.config ]; then \
 		cp $(CONFIG_DIR)/kernel.$*.config $(LINUX_DIR)/.config; \
+		rm -f $(CURRENT_CONFIG); \
+		cp $(CONFIG_DIR)/kernel.$*.mkconf $(CURRENT_CONFIG) 2>/dev/null; \
 		$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux; \
 	else \
 		echo $(CONFIG_DIR)/kernel.$*.config does not exist, cannot build.; \
 	fi
 
 linux-defconfig: $(LINUX_DIR)	## build linux with the defconfig (discards any existing .config)
+	@rm -f $(CURRENT_CONFIG) 2>/dev/null
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(LINUX_DEFCONFIG)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
 
@@ -169,20 +184,32 @@ linux-clean:                    ## remove most generated files in linux folder
 linux-mrproper:                 ## remove all generated files in linux folder
 	@test ! -d $(LINUX_DIR) || $(MAKE) -C $(LINUX_DIR) mrproper
 
+linux-patch: $(LINUX_DIR)	## patch xradio into linux source
+	@cd $(LINUX_DIR); git apply $(ROOT_DIR)/$(CONFIG_DIR)/kernel.add-xradio.patch
+
+linux-unpatch: $(LINUX_DIR)	## undo xradio patch
+	@cd $(LINUX_DIR); git apply -R $(ROOT_DIR)/$(CONFIG_DIR)/kernel.add-xradio.patch
+
 .build-linux: $(LINUX_DIR) $(LINUX_CONFIG)
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(MENUCONFIG)
-	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) zImage dtbs
-#	$(MAKE) -f $(THIS_FILE) --no-print-director $(ZIMAGE_FILE)
+	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) zImage
+ifndef NO_MODULES
 	$(MAKE) -f $(THIS_FILE) --no-print-director .build-modules
+endif
+
+test:
+ifndef NO_MODULES
+	@echo Modules.
+else
+	@echo No modules.
+endif
 
 .build-modules: $(LINUX_DIR)
-	@if [ -d $(LINUX_MOD_PATH) ]; then \
-		rm -rf $(LINUX_MOD_PATH)/; \
-	fi
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INSTALL_MOD_PATH=$(LINUX_MOD_PATH) modules_install
+ifndef $(NO_XRADIO_MOD)
 	@$(MAKE) -f $(THIS_FILE) --no-print-director xradio
-
+endif
 
 xradio: $(LINUX_DIR) $(XRADIO_DIR)	## build xradio module
 	$(MAKE) -C $(LINUX_DIR) M=$(ROOT_DIR)/$(XRADIO_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
@@ -193,49 +220,115 @@ xradio: $(LINUX_DIR) $(XRADIO_DIR)	## build xradio module
 
 $(OUTPUT_DIR):
 	@mkdir -p $(OUTPUT_DIR)/boot/dtbs
+$(OUTPUT_DIR)/boot:
+	@mkdir -p $(OUTPUT_DIR)/boot
 
-install: install-clean $(OUTPUT_DIR) $(UBOOT_FILE) $(ZIMAGE_FILE) $(ALPINE_DIR)		## prepare all files files for installation
-	@echo Copying files..
-	@cp -r $(ALPINE_DIR)/apks $(OUTPUT_DIR)
-	@cp $(ZIMAGE_FILE) $(OUTPUT_DIR)/boot/
-	@cp $(CONFIG_DIR)/boot.cmd $(OUTPUT_DIR)/boot/
-	@cp $(UBOOT_FILE) $(OUTPUT_DIR)/
-	@cp $(CONFIG_DIR)/sun8i-h2-plus-orangepi-zero.dt* $(OUTPUT_DIR)/boot/dtbs/
+$(DEVTREE_OUT):
+	@mkdir -p $(DEVTREE_OUT)
 
+$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(CONFIG_DIR)/$(DEVTREE_NAME).dts
+
+$(DEVTREE_OUT)/$(DEVTREE_NAME).dtb: $(DEVTREE_OUT) $(DEVTREE_OUT)/$(DEVTREE_NAME).dts
+	@echo Making DTB..
+	@dtc -I dts -O dtb -W no-unit_address_vs_reg $(CONFIG_DIR)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+	@echo
+
+$(OUTPUT_DIR)/apks/armv7:
+	@mkdir -p $(OUTPUT_DIR)/apks/armv7
+
+$(OUTPUT_DIR)/u-boot-sunxi-with-spl.bin: $(UBOOT_FILE)
+
+$(OUTPUT_DIR)/boot/boot.cmd: $(CONFIG_DIR)/$(BOOT_CMD)
+$(OUTPUT_DIR)/boot/boot.scr: $(OUTPUT_DIR)/boot/boot.cmd
 	@echo; echo Making boot.scr..
 	@mkimage -C none -A $(ARCH) -T script -d $(OUTPUT_DIR)/boot/boot.cmd $(OUTPUT_DIR)/boot/boot.scr
+	@echo
 
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory initramfs
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory modloop
-	@echo; echo Done.
+$(OUTPUT_DIR)/boot/zImage: $(ZIMAGE_FILE)
 
-initramfs: $(OUTPUT_DIR) $(ALPINE_DIR) $(LINUX_MOD_PATH)		## create Alpine initramfs file only
+$(OUTPUT_DIR)/.config: $(LINUX_DIR)/.config
+
+$(OUTPUT_DIR)/%: | $(OUTPUT_DIR)
+	@cp -f $< $@
+
+$(OUTPUT_DIR)/apks/%: $(ALPINE_DIR) | $(OUTPUT_DIR)/apks/armv7
+	@cp -f $(ALPINE_DIR)/apks/$* $@
+
+install: apks_out = $(addprefix $(OUTPUT_DIR)/,$(shell find $(ALPINE_DIR)/apks/ -type f | cut -d'/' -f3-))
+install: $(OUTPUT_DIR)/boot/dtbs			## prepare all files for installation
+	@echo Checking files..
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(apks_out)
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/u-boot-sunxi-with-spl.bin
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/boot.scr
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/initramfs-sunxi
+ifndef NO_MODULES
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/modloop-sunxi
+endif
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/zImage
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/.config
+	@echo Done.
+
+initramfs: $(OUTPUT_DIR)/boot/initramfs-sunxi		## create Alpine initramfs file only
+
+$(OUTPUT_DIR)/boot/initramfs-sunxi: modules_dir = $(LINUX_DIR)/output/lib/modules/$(shell make -s -C $(LINUX_DIR) kernelrelease)
+	initramfs_temp ?= $(ROOT_DIR)/$(OUTPUT_DIR)/initramfs-temp
+	initramfs_tempfile ?= $(ROOT_DIR)/$(OUTPUT_DIR)/initramfs-sunxi-temp
+$(OUTPUT_DIR)/boot/initramfs-sunxi: $(ALPINE_DIR) $(LINUX_MOD_PATH) $(REGDB_DIR) $(modules_dir) $(XR819_FW_DIR) | $(OUTPUT_DIR)
+ifndef NO_MODULES
 	@test -d $(modules_dir) || $(MAKE) -f $(THIS_FILE) --no-print-directory .build-modules
-	@echo; echo Making initramfs..
+endif
+	@echo Making initramfs..
 	@mkdir -p $(initramfs_temp)
 	@gunzip -c $(shell find $(ALPINE_DIR) -name 'initramfs*') | cpio -i --quiet -D $(initramfs_temp)
 	@rm -rf $(initramfs_temp)/lib/modules/*
+	@rm -rf $(initramfs_temp)/lib/firmware/*
+ifndef NO_MODULES
 	@cp -rP $(modules_dir) $(initramfs_temp)/lib/modules/ && find $(initramfs_temp)/lib/modules/ -type l -delete
-	@cp -rP firmware $(initramfs_temp)/lib/ 2>/dev/null
+endif
+	@cp -rP $(XR819_FW_DIR) $(initramfs_temp)/lib/firmware 2>/dev/null
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(initramfs_temp)/lib/firmware/$(REGDB_SIG)
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(initramfs_temp)/lib/firmware/$(REGDB_DB)
 	@cd $(initramfs_temp)/; find . | cpio --quiet -H newc -o | $(INITRAMFS_COMPRESSION) $(INITRAMFS_COMPRESSION_ARGS) > $(initramfs_tempfile)
 	@mkimage -n initramfs-sunxi -A $(ARCH) -O linux -T ramdisk -C none -d $(initramfs_tempfile) $(OUTPUT_DIR)/boot/initramfs-sunxi
 	@rm -rf $(initramfs_temp) $(initramfs_tempfile)
+	@echo
 
-modloop: $(OUTPUT_DIR) $(ALPINE_DIR) $(LINUX_MOD_PATH)			## create Alpine modloop file only
+$(initramfs_temp)/lib/firmware/regulatory.%:
+	@cp -f $(REGDB_DIR)/$(@F) $@
+
+ifndef NO_MODULES
+modloop: $(OUTPUT_DIR)/boot/modloop-sunxi		## create Alpine modloop file only
+else
+modloop:
+	@echo No modloop is required for this build.
+endif
+
+$(OUTPUT_DIR)/boot/modloop-sunxi: modules_dir = $(LINUX_DIR)/output/lib/modules/$(shell make -s -C $(LINUX_DIR) kernelrelease)
+	modloop_temp ?= $(OUTPUT_DIR)/modloop-temp
+$(OUTPUT_DIR)/boot/modloop-sunxi: $(ALPINE_DIR) $(LINUX_MOD_PATH) $(REGDB_DIR) $(modules_dir) $(XR819_FW_DIR) | $(OUTPUT_DIR)
 	@test -d $(modules_dir) || $(MAKE) -f $(THIS_FILE) --no-print-directory .build-modules
-	@echo; echo Making modloop..
-	@mkdir -p $(modloop_temp)/modules
+	@echo Making modloop..
+	@rm -rf $(modloop_temp)
+	@mkdir -p $(modloop_temp)/modules/firmware
 	@cp -rP $(modules_dir) $(modloop_temp)/modules/ && find $(modloop_temp)/modules/ -type l -delete
-	@cp -rP firmware $(modloop_temp)/modules/ 2>/dev/null
+	@cp -rP $(XR819_FW_DIR) $(modloop_temp)/modules/firmware/ 2>/dev/null
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(modloop_temp)/modules/firmware/$(REGDB_SIG)
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(modloop_temp)/modules/firmware/$(REGDB_DB)
 	@mksquashfs $(modloop_temp) $(OUTPUT_DIR)/boot/modloop-sunxi -b 1048576 -comp $(MODLOOP_COMPRESSION) -Xdict-size 100% -noappend
 	@rm -rf $(modloop_temp)
+	@echo
+
+$(modloop_temp)/modules/firmware/regulatory.%:
+	@cp -f $(REGDB_DIR)/$(@F) $@
 
 install-clean:                          ## remove previously generated installation files
-	@echo Cleaning old files..
-	@test ! -d $(OUTPUT_DIR) || find $(OUTPUT_DIR)/ ! -type d -delete
-
+	@echo Cleaning old installation files..
+	@test ! -d $(OUTPUT_DIR) || rm -rf $(OUTPUT_DIR)/*
 
 ##@	Source Files
+
+get-all: get-uboot get-linux get-xradio get-alpine	## get/update all source
 
 get-uboot: $(SOURCE_DIR)		## clone or update U-Boot from repo
 	$(call git,U-Boot,$(UBOOT_SOURCE),$(UBOOT_DIR))
@@ -245,6 +338,13 @@ get-linux: $(SOURCE_DIR)		## clone or update linux from repo
 
 get-xradio: $(SOURCE_DIR)		## clone or update xradio from repo
 	$(call git,xradio,$(XRADIO_SOURCE),$(XRADIO_DIR))
+
+get-firmware: $(SOURCE_DIR)		## clone or update xr819 firmware from repo
+	$(call git,firmware,$(XR819_FW_SOURCE),$(XR819_FW_ROOT),--no-checkout)
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(XR819_FW_DIR)
+
+get-regdb: $(SOURCE_DIR)		## download wireless-regdb from repo and untar (if necessary)
+	$(call git,wireless-regdb,$(REGDB_SOURCE),$(REGDB_DIR))
 
 get-alpine: $(SOURCE_DIR)		## download Alpine from repo and untar (if necessary)
 	@echo Checking Alpine..
@@ -281,6 +381,15 @@ $(LINUX_MOD_PATH): | $(LINUX_DIR)
 
 $(XRADIO_DIR):
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-xradio
+
+$(XR819_FW_ROOT):
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-firmware
+
+$(XR819_FW_DIR): $(XR819_FW_ROOT)
+	@cd $(XR819_FW_ROOT); git checkout master -- xr819/
+
+$(REGDB_DIR):
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-regdb
 
 $(ZIMAGE_FILE): | $(LINUX_DIR)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux

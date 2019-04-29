@@ -7,10 +7,10 @@ Pre-built files, ready to go, can be found in `builds/`. There is also a Makefil
 
 ## Versions
 ```
-U-Boot SPL 2019.04_opizero-00335-g216800acf1
+U-Boot 2019.04_opizero-00548-g1f4ae66eaa
 
 # uname -r
-5.1.0-rc4_opizero_default-gadbca4655
+5.1.0-rc5_opizero_default-gff1bbd3fb
 
 # cat /etc/alpine-release
 3.9.3
@@ -123,7 +123,7 @@ Make sure you're using a 3.3V serial adapter, the board won't like 5V RS-232 (an
 The serial console runs at 115,200 baud (8N1).
 
 ### USB
-The USB 2.0 port detects USB flash drives, I've not yet tested it beyond that. 
+The USB 2.0 port detects and can read/write USB flash drives, I've not yet tested it beyond that. 
 
 ### Everything Else
 Untested. `dmesg` will have a few complaints about various bits and pieces of hardware.
