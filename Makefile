@@ -18,7 +18,7 @@ XRADIO_SOURCE		?= github.com/fifteenhex/xradio
 #XRADIO_SOURCE		?= github.com/moonbuggy/xradio
 XR819_FW_SOURCE		?= github.com/armbian/firmware
 REGDB_SOURCE		?= git.kernel.org/pub/scm/linux/kernel/git/sforshee/wireless-regdb
-ALPINE_VERSION		?= 3.9.3
+ALPINE_VERSION		?= 3.10.2
 ALPINE_SERVER		?= dl-cdn.alpinelinux.org
 
 UBOOT_DEFCONFIG		?= orangepi_zero_defconfig

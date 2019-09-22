@@ -7,13 +7,13 @@ Pre-built files, ready to go, can be found in `builds/`. There is also a Makefil
 
 ## Versions
 ```
-U-Boot 2019.04_opizero-00548-g1f4ae66eaa
+U-Boot 2019.10-rc3_opizero-00382-gd6c7309f56
 
 # uname -r
-5.1.0-rc5_opizero_default-gff1bbd3fb
+5.3.0-rc6_opizero_default-gb8437e1e2
 
 # cat /etc/alpine-release
-3.9.3
+3.10.2
 ```
 
 ## Current status
@@ -93,7 +93,9 @@ Initial configuration on first boot can be done with `alpine-setup`. It's a good
 At some point I plan to customize the OS a bit more, integrating a rootfs builder that allows package selection into the build process in one way or another.
 
 ## What Works, What Doesn't
-The comments in the sections below apply to the default build (`builds/default`, `configs/kernel.default.config`), which is the only build in this repo at the present time.
+The comments in the sections below apply to the default build (`builds/default`, `configs/kernel.default.config`).
+
+Any other `configs/*.config` files that may be present are works in progress and should be assumed to be entirely non-functional.
 
 ### Wired Ethernet
 Seems to function just fine.
