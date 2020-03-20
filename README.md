@@ -7,13 +7,13 @@ Pre-built files, ready to go, can be found in `builds/`. There is also a Makefil
 
 ## Versions
 ```
-U-Boot 2019.10-rc3_opizero-00382-gd6c7309f56
+U-Boot 2020.04-rc3_opizero-00161-g14eb12a3c8
 
 # uname -r
-5.3.0-rc6_opizero_default-gb8437e1e2
+5.6.0-rc4_opizero_default-g6a8c531e7
 
 # cat /etc/alpine-release
-3.10.2
+3.11.3
 ```
 
 ## Current status
@@ -22,17 +22,17 @@ This is a work in progress. Not everything necessarily functions, not everything
 ## Install on SD card
 
 ### Automatic 
-The script `scripts/write_sd.sh` will automatically configure an SD card with a bootable Alpine if executed from inside a build folder (it expects to see `apks/`, `boot/` and `u-boot-sunxi-with-spl.bin`). Be careful about specifying the correct device because the script will happily rewrite the partition table of any device you point it at.
+The script `scripts/write_sd.sh` will automatically configure an SD card with a bootable Alpine from a build folder (it expects to see `apks/`, `boot/` and `u-boot-sunxi-with-spl.bin`). If no `<path>` argument is specified it default to the directory it was run from. Be careful about specifying the correct device because the script will happily rewrite the partition table of any device you point it at.
 
-Usage: `sudo ./write_sd.sh <device>`
+Usage: `sudo ./write_sd.sh <device> <path>`
 
-Example: `sudo ./write_sd.sh /dev/sda`
+Example: `sudo ./write_sd.sh /dev/sda builds/default/`
 
-The script `scripts/copy_sd.sh` will copy kernel files to an already-prepared SD card (with U-Boot already written and the `apks/` folder already present), useful for testing new builds without losing Alpine configuration that is already done. As with the `write_sd.sh` script, it wants to be executed inside a build folder.
+The script `scripts/copy_sd.sh` will copy kernel files to an already-prepared SD card (with U-Boot already written and the `apks/` folder already present), useful for testing new builds without losing Alpine configuration that is already done. As with the `write_sd.sh` script, it wants to be executed inside a build folder or with the path of a build folder specified as the `<path>` argument.
 
-Usage: `sudo ./copy_sd.sh <device>`
+Usage: `sudo ./copy_sd.sh <device> <path>`
 
-Example: `sudo ./copy_sd.sh /dev/sda`
+Example: `sudo ./copy_sd.sh /dev/sda builds/default/`
 
 ### Manual
 A manual approach is safer, with less risk of accidentally aiming `dd` and `fdisk` at the wrong device.
