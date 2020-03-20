@@ -14,11 +14,11 @@
 UBOOT_SOURCE		?= github.com/u-boot/u-boot
 #UBOOT_SOURCE		?= github.com/linux-sunxi/u-boot-sunxi
 LINUX_SOURCE		?= github.com/linux-sunxi/linux-sunxi -b sunxi-next
-XRADIO_SOURCE		?= github.com/fifteenhex/xradio
-#XRADIO_SOURCE		?= github.com/moonbuggy/xradio
+#XRADIO_SOURCE		?= github.com/fifteenhex/xradio
+XRADIO_SOURCE		?= github.com/moonbuggy/xradio
 XR819_FW_SOURCE		?= github.com/armbian/firmware
 REGDB_SOURCE		?= git.kernel.org/pub/scm/linux/kernel/git/sforshee/wireless-regdb
-ALPINE_VERSION		?= 3.10.2
+ALPINE_VERSION		?= 3.11.3
 ALPINE_SERVER		?= dl-cdn.alpinelinux.org
 
 UBOOT_DEFCONFIG		?= orangepi_zero_defconfig
@@ -63,6 +63,8 @@ REGDB_SIG		?= regulatory.db.p7s
 ALPINE_NAME		?= alpine-uboot-$(ALPINE_VERSION)-armv7
 ALPINE_DIR		?= $(SOURCE_DIR)/$(ALPINE_NAME)
 ALPINE_ARCHIVE		?= $(SOURCE_DIR)/$(ALPINE_NAME).tar.gz
+#DEVTREE_DIR			?= $(CONFIG_DIR)
+DEVTREE_DIR			?= $(UBOOT_DIR)/arch/arm/dts
 DEVTREE_OUT		?= $(OUTPUT_DIR)/boot/dtbs
 
 -include $(CURRENT_CONFIG)
@@ -226,11 +228,15 @@ $(OUTPUT_DIR)/boot:
 $(DEVTREE_OUT):
 	@mkdir -p $(DEVTREE_OUT)
 
-$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(CONFIG_DIR)/$(DEVTREE_NAME).dts
+#$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(CONFIG_DIR)/$(DEVTREE_NAME).dts
+$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(DEVTREE_DIR)/$(DEVTREE_NAME).dts
+	@cpp -Wp,-MD,.$(DEVTREE_NAME).dtb.d.pre.tmp -nostdinc -Iinclude -I$(UBOOT_DIR)/include -Itestcase-data -undef -D__DTS__ -x assembler-with-cpp -o $(DEVTREE_OUT)/$(DEVTREE_NAME).dts $(DEVTREE_DIR)/$(DEVTREE_NAME).dts
+	@rm -f .$(DEVTREE_NAME).dtb.d.pre.tmp
 
 $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb: $(DEVTREE_OUT) $(DEVTREE_OUT)/$(DEVTREE_NAME).dts
 	@echo Making DTB..
-	@dtc -I dts -O dtb -W no-unit_address_vs_reg $(CONFIG_DIR)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+#	@dtc -I dts -O dtb -W no-unit_address_vs_reg $(DEVTREE_DIR)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+	@dtc -I dts -O dtb -W no-unit_address_vs_reg $(DEVTREE_OUT)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
 	@echo
 
 $(OUTPUT_DIR)/apks/armv7:
@@ -246,7 +252,9 @@ $(OUTPUT_DIR)/boot/boot.scr: $(OUTPUT_DIR)/boot/boot.cmd
 
 $(OUTPUT_DIR)/boot/zImage: $(ZIMAGE_FILE)
 
-$(OUTPUT_DIR)/.config: $(LINUX_DIR)/.config
+$(OUTPUT_DIR)/kernel.config: $(LINUX_DIR)/.config
+
+$(OUTPUT_DIR)/uboot.config: $(UBOOT_DIR)/.config
 
 $(OUTPUT_DIR)/%: | $(OUTPUT_DIR)
 	@cp -f $< $@
@@ -266,7 +274,8 @@ ifndef NO_MODULES
 endif
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/zImage
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/.config
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/kernel.config
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/uboot.config
 	@echo Done.
 
 initramfs: $(OUTPUT_DIR)/boot/initramfs-sunxi		## create Alpine initramfs file only
