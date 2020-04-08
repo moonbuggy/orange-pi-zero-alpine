@@ -7,7 +7,7 @@ Pre-built files, ready to go, can be found in `builds/`. There is also a Makefil
 
 ## Versions
 ```
-U-Boot 2020.04-rc3_opizero-00161-g14eb12a3c8
+U-Boot 2020.04-rc5_opizero
 
 # uname -r
 5.6.0-rc4_opizero_default-g6a8c531e7
@@ -67,10 +67,15 @@ A manual approach is safer, with less risk of accidentally aiming `dd` and `fdis
 8. eject the SD card before removing it
 	- `eject <device>`
 
-## Make
-The Makefile will fetch all necessary source files and build whatever needs to be built. `make help` will give a list of options, `make info` will show build parameters (which can be changed by editing variables defined at the top of the Makefile). To build a complete set of files, ready to go onto an SD card, all you need to do is type `make install` and everything else should sort itself out.
+## Build
+There's a basic Autoconf script and a Makefile to build any or all required files from source. To build with the default configuration all that's required is:
 
-This has been tested on Ubuntu Bionic, it should function just fine on other distros though. The prerequisites for building can be installed with `apt-get` on distros that use it:
+```
+./configure
+make install
+```
+
+This has been tested on Ubuntu Bionic, however, it should function just fine on other distros. The prerequisites for building can be installed with `apt-get` on distros that use it:
 
 ```
 sudo apt-get -y --no-install-recommends --fix-missing install \
@@ -79,11 +84,19 @@ sudo apt-get -y --no-install-recommends --fix-missing install \
 	git wget pv
 ```
 
-Menuconfig will pop up for builds of U-Boot and the linux kernel but the build process is otherwise non-interactive. `make install` will output into `files/`, builds of individual components (e.g. `make uboot`, `make linux`) will output into the respective source folders.
+### ./configure
+At the moment this doesn't actually configure any part of the build process, it just checks the build environment for required dependencies and warns if any are missing. It doesn't strictly need to be run, missing dependencies will become evident during the build process itself, it's just for convenience.
+
+### make
+The Makefile will fetch all necessary source files and build whatever needs to be built. `make help` will give a list of options, `make info` will show build parameters (which can be changed by editing variables defined at the top of the Makefile). To build a complete set of files, ready to go onto an SD card, all you need to do is type `make install` and everything else should sort itself out.
+
+Menuconfig will pop up for the builds of U-Boot and the linux kernel but the build process is otherwise non-interactive. Completed build files will output into `files/`, builds of individual components (e.g. `make uboot`, `make linux`) will output into the respective source folders.
 
 It wouldn't be hard to adapt the Makefile to work with other devices, it's just a matter of providing appropriate config files and device trees.
 
-## Alpine
+## Configuration
+
+### Alpine
 At the moment the Alpine filesystem that loads is taken directly from the generic ARM distro and not modified.
 
 The default login is `root` with no password.
@@ -91,6 +104,14 @@ The default login is `root` with no password.
 Initial configuration on first boot can be done with `alpine-setup`. It's a good idea to `apk add haveged` and start it as a service as part of the initial setup (especially if you're using the [WiFi with WPS](#WiFi), but several services will load faster with more entropy available), once repos are configured. As we're running in RAM any config changes will need to be committed to the SD card with `lbu ci` or they'll be lost on reboot.
 
 At some point I plan to customize the OS a bit more, integrating a rootfs builder that allows package selection into the build process in one way or another.
+
+### DT Overlays
+
+DT overlays can be applied at boot using the `boot/bootEnv.txt` file (which will be in `/media/mmcblk0p1/` from within the booted OS). The environment variable `overlays` should be set to a space separated string of overlays to load. The overlay DTBO files themselves will be in `boot/dtbs/overlays` and prefixed with `sun8i-h2-plus-`.
+
+The overlays created during the build process have generally not been individually tested, they're just pulled directly from the [relevant Armbian repo](https://github.com/armbian/sunxi-DT-overlays) and renamed. The main device tree file is (currently) built from the [linux-sunxi kernel source](https://github.com/linux-sunxi/linux-sunxi/tree/sunxi-next), however, so there may be some incompatibilities.
+
+Preferentially, `make install` (via `make overlays`) will build overlays from `configs/overlays`. Any `*.dts` files in this folder will be used if they exist, regardless of any files with matching names existing in the source.
 
 ## What Works, What Doesn't
 The comments in the sections below apply to the default build (`builds/default`, `configs/kernel.default.config`).
@@ -101,7 +122,9 @@ Any other `configs/*.config` files that may be present are works in progress and
 Seems to function just fine.
 
 ### WiFi
-The xradio WiFi is functional. It can be started with `wpa_supplicant` directly from the command line, or as a service via OpenRC, adding the following to `/etc/conf.d/wpa_supplicant`:
+The xradio WiFi is generally functional, although there will be many "missed interrupt" warnings in the log and some (presumably) associated packet loss. This seems to be caused by an issue in the hardware and/or the driver and is not exclusive to this build.
+
+It can be started with `wpa_supplicant` directly from the command line, or as a service via OpenRC, adding the following to `/etc/conf.d/wpa_supplicant`:
 
 ```
 wpa_supplicant_args="-B -i wlan0 -c /etc/wpa_supplicant/wpa_supplicant.conf"

@@ -1,24 +1,28 @@
 #! /bin/sh
 
 DEVICE=$1
-TEMP_MOUNT='.mount.tmp'
 FILES_PATH='.'
 
-if [ ! -z "$2" ]; then
+usage() { echo "usage: $0 <device> [<path>]"; }
+
+if [ -d "$2" ]; then
 	FILES_PATH=$2
+else
+	echo "Error: $2 is not a valid path."
+	usage
+	exit 2
 fi
 
 if [ -z "$DEVICE" ]; then
-        echo "No device specified."
-        echo "usage: $0 <device>"
-        exit 1
+	echo "Error: No device specified."
+	usage
+	exit 2
 fi
 
-if [ -b "$DEVICE" ]; then
-        true
-else
-        echo "Error: $DEVICE is not a valid device."
-        exit 1
+if [ ! -b "$DEVICE" ]; then
+	echo "Error: $DEVICE is not a valid device."
+	usage
+	exit 2
 fi
 
 echo "This script will destroy all data on the device you have selected ($DEVICE) and create"
@@ -28,72 +32,70 @@ echo "partition table before they are written. You need to be confident that the
 echo "have specified ($DEVICE) is the correct device."
 echo
 while true; do
-        read -p "Are you sure you want to continue? " confirmation
-        case $(echo "$confirmation" | tr '[:upper:]' '[:lower:]') in
-                y|yes ) break;;
-                n|no ) echo "Discretion is the better part of valour. Exiting."; exit;;
-                * ) echo "Please answer yes or no.";;
-        esac
+	read -p "Are you sure you want to continue? " confirmation
+	case $(echo "$confirmation" | tr '[:upper:]' '[:lower:]') in
+			y|yes ) break;;
+			n|no ) echo "Discretion is the better part of valour. Exiting."; exit;;
+			* ) echo "Please answer yes or no.";;
+	esac
 done
 echo
 
-sudo parted --script "$DEVICE"1 > /dev/null 2>&1
-retval=$?
-if [ ! $retval -gt 0 ]; then
-        echo "Wiping signatures.."
-        sudo wipefs --all --force "$DEVICE"1 > /dev/null 2>&1
-        retval=$?
-        if [ $retval -gt 0 ]; then
-                echo "Error: failed to remove signature, exiting"
-                exit 1
-        fi
+if parted --script "$DEVICE"1 > /dev/null 2>&1; then
+	echo "Wiping signatures.."
+	wipefs --all --force "$DEVICE"1 > /dev/null 2>&1 \
+		|| { echo "Error: failed to remove signatures"; exit 1; }
 fi
 
 echo "Writing zeroes.."
-dd if=/dev/zero of=$DEVICE bs=1M count=1 status=none
-retval=$?
-if [ $retval -gt 0 ]; then
-        echo "Error: failed to write zeros, exiting"
-        exit 1
-fi
+dd if=/dev/zero of=$DEVICE bs=1M count=1 status=none \
+	|| { echo "Error: failed to write zeros"; exit 1; }
+
 
 echo "Writing u-boot.."
-dd if=$FILES_PATH/u-boot-sunxi-with-spl.bin of=$DEVICE bs=1024 seek=8 status=none
-retval=$?
-if [ $retval -gt 0 ]; then
-        echo "Error: failed to write u-boot, exiting"
-        exit 1
-fi
+dd if=$FILES_PATH/u-boot-sunxi-with-spl.bin of=$DEVICE bs=1024 seek=8 status=none \
+	|| { echo "Error: failed to write u-boot"; exit 1; }
 
 echo "Creating partition.."
 # from https://superuser.com/a/984637
 # include comments so we can see what operations are taking place, but
 # strip the comments with sed before sending arguments to fdisk
 FDISK_OUTPUT=$(sed -e 's/\s*\([\+0-9a-zA-Z]*\).*/\1/' << EOF | fdisk $DEVICE
-        n       # add new
-        p       # primary partition
-        1       # numbered 1
-        2048    # from sector 2048
-                # to the last sector
-        t       # of type
-        c       # W95 FAT32 (LBA)
-        a       # make it bootable
-        w       # save changes
-        q       # exit fdisk
+	n		# add new
+	p		# primary partition
+	1		# numbered 1
+	2048	# from sector 2048
+			# to the last sector
+	t		# of type
+	c		# W95 FAT32 (LBA)
+	a		# make it bootable
+	w		# save changes
+	q		# exit fdisk
 EOF
 )
 
 echo "Formating partition.."
-mkfs.vfat -n ALPINE "$DEVICE"1 >/dev/null
+mkfs.vfat -n ALPINE "$DEVICE"1 >/dev/null \
+	|| { echo "Error: failed to make vfat partition"; exit 1; }
+
+cleanup() {
+	mountpoint -q $TEMP_MOUNT && umount "$TEMP_MOUNT"
+	[ -d $TEMP_MOUNT ] && rm -rf $TEMP_MOUNT
+}
+
+TEMP_MOUNT=$(mktemp -d -t opizero-alpine-XXXXXXXX)
+
+trap 'cleanup' EXIT
+
+echo "Mounting device.."
+mount "$DEVICE"1 $TEMP_MOUNT \
+	|| { echo "Error: failed to mount ${DEVICE}1"; exit 1; }
 
 echo "Copying files.."
-[ -d "$TEMP_MOUNT" ] && rm -rf "$TEMP_MOUNT"
-mkdir $TEMP_MOUNT; mount "$DEVICE"1 $TEMP_MOUNT
-cp -r $FILES_PATH/apks "$TEMP_MOUNT"/
-cp -r $FILES_PATH/boot "$TEMP_MOUNT"/
-umount "$TEMP_MOUNT"; rm -rf "$TEMP_MOUNT"
+{ cp -r $FILES_PATH/apks "$TEMP_MOUNT"/ && cp -r $FILES_PATH/boot "$TEMP_MOUNT"/; } \
+	|| { echo "Error: failed to copy from $FILES_PATH"; exit 1; }
 
 echo "Ejecting device.."
-eject $DEVICE
+eject $DEVICE || true
 
 echo "Done!"

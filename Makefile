@@ -14,12 +14,13 @@
 UBOOT_SOURCE		?= github.com/u-boot/u-boot
 #UBOOT_SOURCE		?= github.com/linux-sunxi/u-boot-sunxi
 LINUX_SOURCE		?= github.com/linux-sunxi/linux-sunxi -b sunxi-next
-#XRADIO_SOURCE		?= github.com/fifteenhex/xradio
-XRADIO_SOURCE		?= github.com/moonbuggy/xradio
+XRADIO_SOURCE		?= github.com/fifteenhex/xradio
+#XRADIO_SOURCE		?= github.com/moonbuggy/xradio
 XR819_FW_SOURCE		?= github.com/armbian/firmware
 REGDB_SOURCE		?= git.kernel.org/pub/scm/linux/kernel/git/sforshee/wireless-regdb
-ALPINE_VERSION		?= 3.11.4
+ALPINE_VERSION		?= 3.11.3
 ALPINE_SERVER		?= dl-cdn.alpinelinux.org
+OVERLAYS_SOURCE		?= github.com/armbian/sunxi-DT-overlays
 
 UBOOT_DEFCONFIG		?= orangepi_zero_defconfig
 LINUX_DEFCONFIG		?= sunxi_defconfig
@@ -48,11 +49,11 @@ OUTPUT_DIR		?= files
 UBOOT_DIR		?= $(SOURCE_DIR)/u-boot
 UBOOT_CONFIG		?= $(UBOOT_DIR)/.config
 UBOOT_FILE		?= $(UBOOT_DIR)/u-boot-sunxi-with-spl.bin
-BOOT_CMD		?= boot.cmd
 LINUX_DIR		?= $(SOURCE_DIR)/linux-sunxi
 LINUX_CONFIG		?= $(LINUX_DIR)/.config
-LINUX_MOD_PATH		?= $(ROOT_DIR)/$(LINUX_DIR)/output
+LINUX_OUT_DIR		?= $(ROOT_DIR)/$(LINUX_DIR)/output
 ZIMAGE_FILE		?= $(LINUX_DIR)/arch/arm/boot/zImage
+#ZIMAGE_FILE		?= $(LINUX_OUT_DIR)/zImage
 XRADIO_DIR		?= $(SOURCE_DIR)/xradio
 XR819_FW_ROOT		?= $(SOURCE_DIR)/firmware
 XR819_FW_DIR		?= $(XR819_FW_ROOT)/xr819
@@ -66,6 +67,8 @@ ALPINE_ARCHIVE		?= $(SOURCE_DIR)/$(ALPINE_NAME).tar.gz
 #DEVTREE_DIR			?= $(CONFIG_DIR)
 DEVTREE_DIR			?= $(UBOOT_DIR)/arch/arm/dts
 DEVTREE_OUT		?= $(OUTPUT_DIR)/boot/dtbs
+OVERLAYS_DIR	?= $(SOURCE_DIR)/overlays
+OVERLAYS_OUT		?= $(DEVTREE_OUT)/overlays
 
 -include $(CURRENT_CONFIG)
 
@@ -73,8 +76,7 @@ DEVTREE_OUT		?= $(OUTPUT_DIR)/boot/dtbs
 	uboot-clean uboot-mrproper uboot uboot-defconfig uboot-% get-uboot \
 	linux-clean linux-mrproper linux linux-defconfig linux-% .build-linux .build-modules get-linux \
 	xradio get-xradio get-regdb get-firmware \
-	install-clean install initramfs modloop get-alpine \
-	.apk-files
+	install-clean install initramfs modloop get-alpine apks overlays get-overlays
 
 .DEFAULT_TARGET: help
 
@@ -116,15 +118,15 @@ list-configs:	## display a list of configs available for custom builds
 
 ##@ Global
 
-all: uboot linux xradio install       ## build U-Boot, linux (including xradio), Alpine RAM filesystem and prepare files for install
+all: uboot linux xradio install		## build U-Boot, linux (including xradio), Alpine RAM filesystem and prepare files for install
 
-get-all: 						## get latest source for U-Boot, linux and xradio and the specified Alpine version
+get-all: 							## get latest source for U-Boot, linux and xradio and the specified Alpine version
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-uboot
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-linux
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-xradio
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(ALPINE_DIR)
 
-clean: uboot-clean linux-clean				## remove most generated files in source folders
+clean: uboot-clean linux-clean					## remove most generated files in source folders
 
 mrproper: uboot-mrproper linux-mrproper			## remove all generated files in source folders
 
@@ -133,10 +135,10 @@ distclean:						## remove all source files, leave only files in the output folde
 
 ##@ U-Boot
 
-uboot: $(UBOOT_DIR)		## build U-Boot using existing .config if it exists, otherwise using default
+uboot: $(UBOOT_DIR)				## build U-Boot using existing .config if it exists, otherwise using default
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-uboot
 
-uboot-%: $(UBOOT_DIR)		## build U-Boot with custom config, see 'make list-configs' (discards any existing .config)
+uboot-%: $(UBOOT_DIR)			## build U-Boot with custom config, see 'make list-configs' (discards any existing .config)
 	@if [ -f $(CONFIG_DIR)/u-boot.$*.config ]; then \
 		cp $(CONFIG_DIR)/u-boot.$*.config $(UBOOT_CONFIG); \
 		$(MAKE) -f $(THIS_FILE) --no-print-directory .build-uboot; \
@@ -149,23 +151,22 @@ uboot-defconfig: $(UBOOT_DIR)	## build U-Boot with the defconfig (discards any e
 	$(MAKE) -C $(UBOOT_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(UBOOT_DEFCONFIG)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-uboot
 
-uboot-clean:                   ## remove most generated files in U-Boot folder
+uboot-clean:					## remove most generated files in U-Boot folder
 	@test ! -d $(UBOOT_DIR) || $(MAKE) -C $(UBOOT_DIR) clean
 
-uboot-mrproper:                ## remove all generated files in U-Boot folder
+uboot-mrproper:					## remove all generated files in U-Boot folder
 	@test ! -d $(UBOOT_DIR) || $(MAKE) -C $(UBOOT_DIR) mrproper
 
 .build-uboot: $(UBOOT_DIR) $(UBOOT_CONFIG)
 	$(MAKE) -C $(UBOOT_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(MENUCONFIG)
 	$(MAKE) -C $(UBOOT_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE)
 
-
 ##@ Linux
 
-linux: $(LINUX_DIR)		## build linux using existing .config if present, otherwise using default
+linux: $(LINUX_DIR)				## build linux using existing .config if present, otherwise using default
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
 
-linux-%: $(LINUX_DIR)		## build linux with custom config, see 'make list-configs' (discards any existing .config)
+linux-%: $(LINUX_DIR)			## build linux with custom config, see 'make list-configs' (discards any existing .config)
 	@if [ -f $(CONFIG_DIR)/kernel.$*.config ]; then \
 		cp $(CONFIG_DIR)/kernel.$*.config $(LINUX_DIR)/.config; \
 		rm -f $(CURRENT_CONFIG); \
@@ -180,16 +181,18 @@ linux-defconfig: $(LINUX_DIR)	## build linux with the defconfig (discards any ex
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(LINUX_DEFCONFIG)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
 
-linux-clean:                    ## remove most generated files in linux folder
+linux-clean:					## remove most generated files in linux folder
 	@test ! -d $(LINUX_DIR) || $(MAKE) -C $(LINUX_DIR) clean
+	@rm -f $(ZIMAGE_FILE) 2>/dev/null
 
-linux-mrproper:                 ## remove all generated files in linux folder
+linux-mrproper:					## remove all generated files in linux folder
 	@test ! -d $(LINUX_DIR) || $(MAKE) -C $(LINUX_DIR) mrproper
+	@rm -f $(ZIMAGE_FILE) 2>/dev/null
 
-linux-patch: $(LINUX_DIR)	## patch xradio into linux source
+linux-patch: $(LINUX_DIR)		# patch xradio into linux source
 	@cd $(LINUX_DIR); git apply $(ROOT_DIR)/$(CONFIG_DIR)/kernel.add-xradio.patch
 
-linux-unpatch: $(LINUX_DIR)	## undo xradio patch
+linux-unpatch: $(LINUX_DIR)		# undo xradio patch
 	@cd $(LINUX_DIR); git apply -R $(ROOT_DIR)/$(CONFIG_DIR)/kernel.add-xradio.patch
 
 .build-linux: $(LINUX_DIR) $(LINUX_CONFIG)
@@ -199,91 +202,113 @@ ifndef NO_MODULES
 	$(MAKE) -f $(THIS_FILE) --no-print-director .build-modules
 endif
 
-test:
-ifndef NO_MODULES
-	@echo Modules.
-else
-	@echo No modules.
-endif
-
-.build-modules: $(LINUX_DIR)
+.build-modules: $(ZIMAGE_FILE)
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
-	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INSTALL_MOD_PATH=$(LINUX_MOD_PATH) modules_install
+	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INSTALL_MOD_PATH=$(LINUX_OUT_DIR) modules_install
 ifndef $(NO_XRADIO_MOD)
 	@$(MAKE) -f $(THIS_FILE) --no-print-director xradio
 endif
 
 xradio: $(LINUX_DIR) $(XRADIO_DIR)	## build xradio module
 	$(MAKE) -C $(LINUX_DIR) M=$(ROOT_DIR)/$(XRADIO_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
-	$(MAKE) -C $(LINUX_DIR) M=$(ROOT_DIR)/$(XRADIO_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INSTALL_MOD_PATH=$(LINUX_MOD_PATH) modules_install
+	$(MAKE) -C $(LINUX_DIR) M=$(ROOT_DIR)/$(XRADIO_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INSTALL_MOD_PATH=$(LINUX_OUT_DIR) modules_install
 
 
 ##@ Installation Files
 
-$(OUTPUT_DIR):
-	@mkdir -p $(OUTPUT_DIR)/boot/dtbs
-$(OUTPUT_DIR)/boot:
-	@mkdir -p $(OUTPUT_DIR)/boot
+$(OUTPUT_DIR)/ $(OUTPUT_DIR)/apks/armv7/:
+	@mkdir -p $@
 
-$(DEVTREE_OUT):
-	@mkdir -p $(DEVTREE_OUT)
+$(OUTPUT_DIR)%/:
+	@mkdir -p $@
 
-#$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(CONFIG_DIR)/$(DEVTREE_NAME).dts
-$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(DEVTREE_DIR)/$(DEVTREE_NAME).dts
+# copy apks to output folder
+#
+$(OUTPUT_DIR)/apks/%: $(ALPINE_DIR)/apks/% | $(OUTPUT_DIR)/apks/armv7/
+	@cp -f $< $@
+
+apks: $(ALPINE_DIR)/apks/ | $(OUTPUT_DIR)/apks/armv7/
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/apks/.boot_repository
+	@$(foreach file, $(notdir $(wildcard $(ALPINE_DIR)/apks/armv7/*)), $(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/apks/armv7/$(file);)
+
+# copy overlays to output folder
+#
+$(OVERLAYS_OUT)/%.dts: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT)/
+	@test -f $(CONFIG_DIR)/overlays/$(@F) \
+		&& { cp -f $(CONFIG_DIR)/overlays/$(@F) $@; } \
+		|| cp -f $(OVERLAYS_DIR)/sun8i-h3/$(subst sun8i-h2-plus-,sun8i-h3-,$(@F)) $@
+
+$(OVERLAYS_OUT)/%.dtbo: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT)/
+	@echo "Making overlay $(@F)"
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OVERLAYS_OUT)/$(basename $(@F)).dts
+	@dtc -@ -I dts -O dtb -W no-unit_address_vs_reg $(OVERLAYS_OUT)/$(basename $(@F)).dts > $(@)
+
+overlays: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT)/
+	@$(foreach file, $(notdir $(wildcard $(OVERLAYS_DIR)/sun8i-h3/*.dts)), $(eval dts_list+=$(subst sun8i-h3-,, $(basename $(file)))))
+	@$(foreach file, $(notdir $(wildcard $(CONFIG_DIR)/overlays/*.dts)), $(eval dts_list+=$(subst sun8i-h2-plus-,,$(basename $(file)))))
+	@$(foreach file, $(sort $(dts_list)), $(MAKE) -f $(THIS_FILE) --no-print-directory $(OVERLAYS_OUT)/sun8i-h2-plus-$(file).dtbo;)
+
+
+# copy device tree to output folder
+#
+$(DEVTREE_OUT)/$(DEVTREE_NAME).dts: $(DEVTREE_DIR)/$(DEVTREE_NAME).dts | $(DEVTREE_OUT)/
 	@cpp -Wp,-MD,.$(DEVTREE_NAME).dtb.d.pre.tmp -nostdinc -Iinclude -I$(UBOOT_DIR)/include -Itestcase-data -undef -D__DTS__ -x assembler-with-cpp -o $(DEVTREE_OUT)/$(DEVTREE_NAME).dts $(DEVTREE_DIR)/$(DEVTREE_NAME).dts
-	@rm -f $(DEVTREE_NAME).dtb.d.pre.tmp
+	@rm -f .$(DEVTREE_NAME).dtb.d.pre.tmp
 
-$(DEVTREE_OUT)/$(DEVTREE_NAME).dtb: $(DEVTREE_OUT) $(DEVTREE_OUT)/$(DEVTREE_NAME).dts
-	@echo Making DTB..
-#	@dtc -I dts -O dtb -W no-unit_address_vs_reg $(DEVTREE_DIR)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+$(DEVTREE_OUT)/$(DEVTREE_NAME).dtb: $(DEVTREE_OUT)/$(DEVTREE_NAME).dts | $(DEVTREE_OUT)/
+	@echo "Making device tree $(@F)"
+ifdef NO_OVERLAYS
 	@dtc -I dts -O dtb -W no-unit_address_vs_reg $(DEVTREE_OUT)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+else
+	@dtc -@ -I dts -O dtb -W no-unit_address_vs_reg $(DEVTREE_OUT)/$(DEVTREE_NAME).dts > $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+endif
 	@echo
 
-$(OUTPUT_DIR)/apks/armv7:
-	@mkdir -p $(OUTPUT_DIR)/apks/armv7
+# copy miscellaneous to output folder
+#
+$(OUTPUT_DIR)/u-boot-sunxi-with-spl.bin: $(UBOOT_FILE) | $(OUTPUT_DIR)/
 
-$(OUTPUT_DIR)/u-boot-sunxi-with-spl.bin: $(UBOOT_FILE)
-
-$(OUTPUT_DIR)/boot/boot.cmd: $(CONFIG_DIR)/$(BOOT_CMD)
+$(OUTPUT_DIR)/boot/boot.cmd: $(CONFIG_DIR)/boot.cmd | $(OUTPUT_DIR)/boot/
 $(OUTPUT_DIR)/boot/boot.scr: $(OUTPUT_DIR)/boot/boot.cmd
 	@echo; echo Making boot.scr..
 	@mkimage -C none -A $(ARCH) -T script -d $(OUTPUT_DIR)/boot/boot.cmd $(OUTPUT_DIR)/boot/boot.scr
 	@echo
 
-$(OUTPUT_DIR)/boot/zImage: $(ZIMAGE_FILE)
+$(OUTPUT_DIR)/boot/bootEnv.txt: $(CONFIG_DIR)/bootEnv.txt | $(OUTPUT_DIR)/boot/
 
-$(OUTPUT_DIR)/kernel.config: $(LINUX_DIR)/.config
+$(OUTPUT_DIR)/boot/zImage: $(ZIMAGE_FILE) | $(OUTPUT_DIR)/boot/
 
-$(OUTPUT_DIR)/uboot.config: $(UBOOT_DIR)/.config
+$(OUTPUT_DIR)/kernel.config: $(LINUX_DIR)/.config | $(OUTPUT_DIR)/
+$(OUTPUT_DIR)/uboot.config: $(UBOOT_DIR)/.config | $(OUTPUT_DIR)/
 
-$(OUTPUT_DIR)/%: | $(OUTPUT_DIR)
+$(OUTPUT_DIR)/%: | $(OUTPUT_DIR)/
 	@cp -f $< $@
 
-$(OUTPUT_DIR)/apks/%: $(ALPINE_DIR) | $(OUTPUT_DIR)/apks/armv7
-	@cp -f $(ALPINE_DIR)/apks/$* $@
-
-install: apks_out = $(addprefix $(OUTPUT_DIR)/,$(shell find $(ALPINE_DIR)/apks/ -type f | cut -d'/' -f3-))
-install: $(OUTPUT_DIR)/boot/dtbs			## prepare all files for installation
+install:						## prepare all files for installation
 	@echo Checking files..
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(apks_out)
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory apks
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/u-boot-sunxi-with-spl.bin
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/zImage
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/uboot.config
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/boot.scr
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/initramfs-sunxi
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/bootEnv.txt
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
+ifndef NO_OVERLAYS
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory overlays
+endif
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/kernel.config
 ifndef NO_MODULES
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/modloop-sunxi
 endif
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/zImage
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(DEVTREE_OUT)/$(DEVTREE_NAME).dtb
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/kernel.config
-	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/uboot.config
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OUTPUT_DIR)/boot/initramfs-sunxi
 	@echo Done.
 
 initramfs: $(OUTPUT_DIR)/boot/initramfs-sunxi		## create Alpine initramfs file only
 
-$(OUTPUT_DIR)/boot/initramfs-sunxi: modules_dir = $(LINUX_DIR)/output/lib/modules/$(shell make -s -C $(LINUX_DIR) kernelrelease)
+$(OUTPUT_DIR)/boot/initramfs-sunxi: modules_dir = $(LINUX_OUT_DIR)/lib/modules/$(shell make -s -C $(LINUX_DIR) kernelrelease)
 	initramfs_temp ?= $(ROOT_DIR)/$(OUTPUT_DIR)/initramfs-temp
 	initramfs_tempfile ?= $(ROOT_DIR)/$(OUTPUT_DIR)/initramfs-sunxi-temp
-$(OUTPUT_DIR)/boot/initramfs-sunxi: $(ALPINE_DIR) $(LINUX_MOD_PATH) $(REGDB_DIR) $(modules_dir) $(XR819_FW_DIR) | $(OUTPUT_DIR)
+$(OUTPUT_DIR)/boot/initramfs-sunxi: $(ALPINE_DIR) $(LINUX_OUT_DIR) $(REGDB_DIR) $(modules_dir) $(XR819_FW_DIR) | $(OUTPUT_DIR)/
 ifndef NO_MODULES
 	@test -d $(modules_dir) || $(MAKE) -f $(THIS_FILE) --no-print-directory .build-modules
 endif
@@ -313,9 +338,9 @@ modloop:
 	@echo No modloop is required for this build.
 endif
 
-$(OUTPUT_DIR)/boot/modloop-sunxi: modules_dir = $(LINUX_DIR)/output/lib/modules/$(shell make -s -C $(LINUX_DIR) kernelrelease)
+$(OUTPUT_DIR)/boot/modloop-sunxi: modules_dir = $(LINUX_OUT_DIR)/lib/modules/$(shell make -s -C $(LINUX_DIR) kernelrelease)
 	modloop_temp ?= $(OUTPUT_DIR)/modloop-temp
-$(OUTPUT_DIR)/boot/modloop-sunxi: $(ALPINE_DIR) $(LINUX_MOD_PATH) $(REGDB_DIR) $(modules_dir) $(XR819_FW_DIR) | $(OUTPUT_DIR)
+$(OUTPUT_DIR)/boot/modloop-sunxi: $(ALPINE_DIR) $(LINUX_OUT_DIR) $(REGDB_DIR) $(modules_dir) $(XR819_FW_DIR) | $(OUTPUT_DIR)/
 	@test -d $(modules_dir) || $(MAKE) -f $(THIS_FILE) --no-print-directory .build-modules
 	@echo Making modloop..
 	@rm -rf $(modloop_temp)
@@ -331,7 +356,7 @@ $(OUTPUT_DIR)/boot/modloop-sunxi: $(ALPINE_DIR) $(LINUX_MOD_PATH) $(REGDB_DIR) $
 $(modloop_temp)/modules/firmware/regulatory.%:
 	@cp -f $(REGDB_DIR)/$(@F) $@
 
-install-clean:                          ## remove previously generated installation files
+install-clean:				  ## remove previously generated installation files
 	@echo Cleaning old installation files..
 	@test ! -d $(OUTPUT_DIR) || rm -rf $(OUTPUT_DIR)/*
 
@@ -339,28 +364,28 @@ install-clean:                          ## remove previously generated installat
 
 get-all: get-uboot get-linux get-xradio get-alpine	## get/update all source
 
-get-uboot: $(SOURCE_DIR)		## clone or update U-Boot from repo
-	$(call git,U-Boot,$(UBOOT_SOURCE),$(UBOOT_DIR))
+get-uboot: $(SOURCE_DIR)/		## clone or update U-Boot from repo
+	$(call git,U-Boot,$(UBOOT_SOURCE),$(UBOOT_DIR),--depth 1)
 
-get-linux: $(SOURCE_DIR)		## clone or update linux from repo
+get-linux: $(SOURCE_DIR)/		## clone or update linux from repo
 	$(call git,linux,$(LINUX_SOURCE),$(LINUX_DIR),--depth 1)
 
-get-xradio: $(SOURCE_DIR)		## clone or update xradio from repo
-	$(call git,xradio,$(XRADIO_SOURCE),$(XRADIO_DIR))
+get-xradio: $(SOURCE_DIR)/		## clone or update xradio from repo
+	$(call git,xradio,$(XRADIO_SOURCE),$(XRADIO_DIR),--depth 1)
 
-get-firmware: $(SOURCE_DIR)		## clone or update xr819 firmware from repo
+get-firmware: $(SOURCE_DIR)/	## clone or update xr819 firmware from repo
 	$(call git,firmware,$(XR819_FW_SOURCE),$(XR819_FW_ROOT),--no-checkout)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(XR819_FW_DIR)
 
-get-regdb: $(SOURCE_DIR)		## download wireless-regdb from repo and untar (if necessary)
+get-regdb: $(SOURCE_DIR)/		# download wireless-regdb from repo and untar (if necessary)
 	$(call git,wireless-regdb,$(REGDB_SOURCE),$(REGDB_DIR))
 
-get-alpine: $(SOURCE_DIR)		## download Alpine from repo and untar (if necessary)
+get-alpine: $(SOURCE_DIR)/		# download Alpine from repo and untar (if necessary)
 	@echo Checking Alpine..
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(ALPINE_DIR)
-
-$(SOURCE_DIR):
-	@mkdir -p $(SOURCE_DIR)
+	
+get-overlays: | $(OVERLAYS_DIR)/.git/info/sparse-checkout
+	$(call git,DT overlays,$(OVERLAYS_SOURCE),$(OVERLAYS_DIR),origin master --depth=1)
 
 define git
 	@echo Checking ${1}..
@@ -369,6 +394,9 @@ define git
 	  || git -C ${3} pull ${4}
 	@echo
 endef
+
+$(SOURCE_DIR)/:
+	@mkdir -p $(SOURCE_DIR)
 
 $(UBOOT_DIR):
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-uboot
@@ -385,7 +413,7 @@ $(LINUX_DIR):
 $(LINUX_CONFIG): | $(LINUX_DIR)
 	@test -f $(LINUX_CONFIG) || cp $(CONFIG_DIR)/kernel.default.config $(LINUX_CONFIG)
 
-$(LINUX_MOD_PATH): | $(LINUX_DIR)
+$(LINUX_OUT_DIR): | $(LINUX_DIR)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-modules
 
 $(XRADIO_DIR):
@@ -403,7 +431,10 @@ $(REGDB_DIR):
 $(ZIMAGE_FILE): | $(LINUX_DIR)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
 
-$(ALPINE_DIR): | $(ALPINE_ARCHIVE)
+$(ALPINE_DIR)%/:
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(ALPINE_DIR)/
+
+$(ALPINE_DIR)/: $(ALPINE_ARCHIVE)
 	@echo;	echo Untarring Alpine..
 	@mkdir -p $(ALPINE_DIR)
 ifneq (, $(shell which pv))
@@ -416,3 +447,13 @@ endif
 $(ALPINE_ARCHIVE):
 	@echo Downloading Alpine..
 	@wget --show-progress --progress=bar:force -q -P $(SOURCE_DIR)/ http://$(ALPINE_SERVER)/alpine/v$(shell echo $(ALPINE_VERSION) | cut -f1,2 -d".")/releases/armv7/$(ALPINE_NAME).tar.gz
+
+$(OVERLAYS_DIR)/.git/info/sparse-checkout: | $(SOURCE_DIR)/
+	@mkdir -p $(OVERLAYS_DIR)/.git/info
+	@git -C $(OVERLAYS_DIR) init
+	@git -C $(OVERLAYS_DIR) remote add -f origin git://$(OVERLAYS_SOURCE)
+	@git -C $(OVERLAYS_DIR) config core.sparseCheckout true
+	@echo "sun8i-h3/" >> $(OVERLAYS_DIR)/.git/info/sparse-checkout
+
+$(OVERLAYS_DIR)/:
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-overlays
