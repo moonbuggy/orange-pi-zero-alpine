@@ -1,1 +1,0 @@
-overlays=i2c0 i2c1

@@ -1,0 +1,88 @@
+CONFIG_RFKILL
+-------------
+ -> Networking Support
+
+ A method of disabling or enabling wifi radios. If it's not included the WiFi will throw an error while
+ configuring it through `setup-interfaces`:
+
+ Successfully initialized wpa_supplicant
+ rfkill: Cannot open RFKILL control device
+
+ The Wifi does function regardless of this error though, so long as wpa_supplicant is running (i.e. it
+ might fail ar DHCP during boot if it starts before wpa_supplicant does, but should get get an IP okay
+ soon after boot or from a manual `ifconfig wlan0 up`). This behaviour is consistent with that when
+ RFKILL is enabled.
+
+
+CONFIG_CAN
+----------
+ -> Networking Support
+ 
+ A CAN bus may not be needed for the OPiZero itself to work so it could be removed from a minimal build.
+ 
+ There is an actual CAN bus controller on board though, I believe with hardware specific options in:
+ -> Networking support -> CAN bus subsystem support -> CAN Device Drivers
+
+
+CONFIG_IKCONFIG
+---------------
+ -> General Setup -> Kernel .config support
+ 
+ We don't need to store the config in the kernel in a minimal build.
+ 
+
+CONFIG_SERIAL_8250_DW
+---------------------
+ -> Device Drivers -> Character devices -> Serial drivers
+
+ This is required for the serial console.
+
+
+CONFIG_SERIAL_DEV_BUS
+---------------------
+ Device Drivers -> Character devices
+ 
+ Needs to be enabled to enable specific GNSS device support.
+ 
+ 
+CONFIG_SERIAL_DEV_CTRL_TTYPORT
+------------------------------
+
+ Presumably should be enabled.
+ 
+ 
+CONFIG_GNSS_UBX_SERIAL
+-----------------------
+
+ Device Drivers -> GNSS reciever suppor
+ 
+ Support for u-blox chips.
+ 
+CONFIG_PPS
+----------
+ -> Device Drivers
+ 
+ Required for PPS signal from GPS.
+
+
+CONFIG_NTP_PPS
+CONFIG_PPS_CLIENT_KTIMER
+CONFIG_PPS_CLIENT_GPIO
+-----------------------
+ -> Device Drivers -> PPS support
+ 
+ Required for PPS signal from GPS.
+
+
+CONFIG_PPS_CLIENT_LDISC
+------------------------
+ -> Device Drivers -> PPS support
+ 
+ This is probably needed to make gpsd and chrony talk to each other.
+ 
+
+CONFIG_SYSVIPC
+--------------
+ -> General Setup
+
+ Chrony requires this to set up SHM to talk to gpsd.

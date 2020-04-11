@@ -1,0 +1,2 @@
+overlays=uart1 uart2 i2c0 pps-gpio
+param_pps_pin=PA3

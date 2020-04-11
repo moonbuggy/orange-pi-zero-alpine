@@ -5,6 +5,8 @@ Running in RAM, using an SD card only for initial loading of the filesystem and 
 
 Pre-built files, ready to go, can be found in `builds/`. There is also a Makefile which allows easy customization and building using either files in `configs/` or defconfigs as a base to work from.
 
+The built kernel images are intentionally quite minimal, and no modules are included other than for the WiFi, to keep the size down. The default build is intended to be a base to build from, it should be everything necessary to run all the hardware on the Orange Pi Zero, but nothing else. Any other builds in this repo will generally be the bare minimum for a particular application of mine. You'll probably need to build your own kernel to suit your application and/or support any devices you might attach, unless your application happens to be quite similar to something I've already built for.
+
 ## Versions
 ```
 U-Boot 2020.04-rc5_opizero

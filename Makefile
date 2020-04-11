@@ -163,20 +163,22 @@ uboot-mrproper:					## remove all generated files in U-Boot folder
 
 ##@ Linux
 
-linux: $(LINUX_DIR)				## build linux using existing .config if present, otherwise using default
+linux: $(LINUX_DIR)/				## build linux using existing .config if present, otherwise using default
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
 
-linux-%: $(LINUX_DIR)			## build linux with custom config, see 'make list-configs' (discards any existing .config)
+linux-%: $(LINUX_DIR)/			## build linux with custom config, see 'make list-configs' (discards any existing .config)
 	@if [ -f $(CONFIG_DIR)/kernel.$*.config ]; then \
 		cp $(CONFIG_DIR)/kernel.$*.config $(LINUX_DIR)/.config; \
 		rm -f $(CURRENT_CONFIG); \
 		cp $(CONFIG_DIR)/kernel.$*.mkconf $(CURRENT_CONFIG) 2>/dev/null; \
+		cp -f $(CONFIG_DIR)/bootEnv.$*.txt $(LINUX_DIR)/bootEnv.txt || cp -f $(CONFIG_DIR)/bootEnv.txt $(LINUX_DIR)/bootEnv.txt; \
 		$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux; \
 	else \
 		echo $(CONFIG_DIR)/kernel.$*.config does not exist, cannot build.; \
+		exit 0; \
 	fi
 
-linux-defconfig: $(LINUX_DIR)	## build linux with the defconfig (discards any existing .config)
+linux-defconfig: $(LINUX_DIR)/	## build linux with the defconfig (discards any existing .config)
 	@rm -f $(CURRENT_CONFIG) 2>/dev/null
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(LINUX_DEFCONFIG)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
@@ -189,13 +191,13 @@ linux-mrproper:					## remove all generated files in linux folder
 	@test ! -d $(LINUX_DIR) || $(MAKE) -C $(LINUX_DIR) mrproper
 	@rm -f $(ZIMAGE_FILE) 2>/dev/null
 
-linux-patch: $(LINUX_DIR)		# patch xradio into linux source
+linux-patch: $(LINUX_DIR)/		# patch xradio into linux source
 	@cd $(LINUX_DIR); git apply $(ROOT_DIR)/$(CONFIG_DIR)/kernel.add-xradio.patch
 
-linux-unpatch: $(LINUX_DIR)		# undo xradio patch
+linux-unpatch: $(LINUX_DIR)/		# undo xradio patch
 	@cd $(LINUX_DIR); git apply -R $(ROOT_DIR)/$(CONFIG_DIR)/kernel.add-xradio.patch
 
-.build-linux: $(LINUX_DIR) $(LINUX_CONFIG)
+.build-linux: $(LINUX_DIR)/ $(LINUX_CONFIG) $(LINUX_DIR)/bootEnv.txt
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) $(MENUCONFIG)
 	$(MAKE) -C $(LINUX_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) zImage
 ifndef NO_MODULES
@@ -209,7 +211,7 @@ ifndef $(NO_XRADIO_MOD)
 	@$(MAKE) -f $(THIS_FILE) --no-print-director xradio
 endif
 
-xradio: $(LINUX_DIR) $(XRADIO_DIR)	## build xradio module
+xradio: $(LINUX_DIR)/ $(XRADIO_DIR)	## build xradio module
 	$(MAKE) -C $(LINUX_DIR) M=$(ROOT_DIR)/$(XRADIO_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) modules
 	$(MAKE) -C $(LINUX_DIR) M=$(ROOT_DIR)/$(XRADIO_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) INSTALL_MOD_PATH=$(LINUX_OUT_DIR) modules_install
 
@@ -241,12 +243,18 @@ $(OVERLAYS_OUT)/%.dts: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT
 $(OVERLAYS_OUT)/%.dtbo: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT)/
 	@echo "Making overlay $(@F)"
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OVERLAYS_OUT)/$(basename $(@F)).dts
-	@dtc -@ -I dts -O dtb -W no-unit_address_vs_reg $(OVERLAYS_OUT)/$(basename $(@F)).dts > $(@)
+	@dtc -@ -I dts -O dtb -W no-unit_address_vs_reg $(OVERLAYS_OUT)/$(basename $(@F)).dts > $(@) 2>/dev/null
 
+$(OVERLAYS_OUT)/sun8i-h2-plus-fixup.cmd: $(CONFIG_DIR)/overlays/sun8i-h2-plus-fixup.cmd
+$(OVERLAYS_OUT)/sun8i-h2-plus-fixup.scr: $(OVERLAYS_OUT)/sun8i-h2-plus-fixup.cmd
+	@mkimage -C none -A $(ARCH) -T script -d $(OVERLAYS_OUT)/sun8i-h2-plus-fixup.cmd $(OVERLAYS_OUT)/sun8i-h2-plus-fixup.scr
+	
+#overlays: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT)/
 overlays: $(CONFIG_DIR)/overlays/ $(OVERLAYS_DIR)/ | $(OVERLAYS_OUT)/
 	@$(foreach file, $(notdir $(wildcard $(OVERLAYS_DIR)/sun8i-h3/*.dts)), $(eval dts_list+=$(subst sun8i-h3-,, $(basename $(file)))))
 	@$(foreach file, $(notdir $(wildcard $(CONFIG_DIR)/overlays/*.dts)), $(eval dts_list+=$(subst sun8i-h2-plus-,,$(basename $(file)))))
 	@$(foreach file, $(sort $(dts_list)), $(MAKE) -f $(THIS_FILE) --no-print-directory $(OVERLAYS_OUT)/sun8i-h2-plus-$(file).dtbo;)
+	@$(MAKE) -f $(THIS_FILE) --no-print-directory $(OVERLAYS_OUT)/sun8i-h2-plus-fixup.scr
 
 
 # copy device tree to output folder
@@ -274,7 +282,7 @@ $(OUTPUT_DIR)/boot/boot.scr: $(OUTPUT_DIR)/boot/boot.cmd
 	@mkimage -C none -A $(ARCH) -T script -d $(OUTPUT_DIR)/boot/boot.cmd $(OUTPUT_DIR)/boot/boot.scr
 	@echo
 
-$(OUTPUT_DIR)/boot/bootEnv.txt: $(CONFIG_DIR)/bootEnv.txt | $(OUTPUT_DIR)/boot/
+$(OUTPUT_DIR)/boot/bootEnv.txt: $(LINUX_DIR)/bootEnv.txt | $(OUTPUT_DIR)/boot/
 
 $(OUTPUT_DIR)/boot/zImage: $(ZIMAGE_FILE) | $(OUTPUT_DIR)/boot/
 
@@ -407,13 +415,16 @@ $(UBOOT_CONFIG): | $(UBOOT_DIR)
 $(UBOOT_FILE): | $(UBOOT_DIR)
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-uboot
 
-$(LINUX_DIR):
+$(LINUX_DIR)/:
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-linux
 
-$(LINUX_CONFIG): | $(LINUX_DIR)
+$(LINUX_CONFIG): | $(LINUX_DIR)/
 	@test -f $(LINUX_CONFIG) || cp $(CONFIG_DIR)/kernel.default.config $(LINUX_CONFIG)
 
-$(LINUX_OUT_DIR): | $(LINUX_DIR)
+$(LINUX_DIR)/bootEnv.txt: | $(LINUX_DIR)/
+	@test -f $(LINUX_DIR)/bootEnv.txt || cp $(CONFIG_DIR)/bootEnv.txt $(LINUX_DIR)/
+
+$(LINUX_OUT_DIR): | $(LINUX_DIR)/
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-modules
 
 $(XRADIO_DIR):
@@ -428,7 +439,7 @@ $(XR819_FW_DIR): $(XR819_FW_ROOT)
 $(REGDB_DIR):
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory get-regdb
 
-$(ZIMAGE_FILE): | $(LINUX_DIR)
+$(ZIMAGE_FILE): | $(LINUX_DIR)/
 	@$(MAKE) -f $(THIS_FILE) --no-print-directory .build-linux
 
 $(ALPINE_DIR)%/:
